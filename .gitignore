@@ -1,0 +1,24 @@
+# Python 编译缓存
+__pycache__/
+*.py[cod]
+*$py.class
+*.env
+venv/
+.venv/
+
+# 打包产生的文件与可执行程序（彻底杜绝上传 exe）
+build/
+dist/
+*.spec
+*.exe
+
+# 临时测试音频与歌词
+*.flac
+*.mp3
+*.lrc
+*.zip
+
+# 编辑器配置
+.idea/
+.vscode/
+*.swp

@@ -1,0 +1,414 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <title>SonicTag Studio</title>
+  <link rel="stylesheet" href="/static/style.css">
+
+</head>
+<body>
+
+<audio id="audioEngine" preload="metadata"></audio>
+<input type="file" id="coverFileInput" accept="image/*" style="display: none;">
+
+<!-- 画中画专用离屏渲染节点 -->
+<canvas id="pipCanvas" width="600" height="200" style="position: fixed; top: -9999px; left: -9999px; pointer-events: none;"></canvas>
+<video id="pipVideo" autoplay muted playsinline style="position: fixed; top: -9999px; left: -9999px; width: 10px; height: 10px; opacity: 0; pointer-events: none;"></video>
+
+<!-- 恢复断点播放胶囊提示 -->
+<div class="resume-toast liquid-glass" id="resumeToast">
+  <span id="resumeToastText">已为你自动定位至上次播放进度</span>
+</div>
+
+<div class="progress-backdrop" id="progressModal">
+  <div class="progress-card liquid-glass">
+    <div class="progress-header">
+      <span class="progress-title" id="pModalTitle">正在导出与打标...</span>
+      <span class="progress-percent" id="pModalPercent">0%</span>
+    </div>
+    <div class="progress-track">
+      <div class="progress-fill" id="pModalFill"></div>
+    </div>
+    <div class="progress-status" id="pModalStatus">正在准备数据...</div>
+  </div>
+</div>
+
+<div class="app-window" id="appWindow">
+  <!-- 全屏动态流光背景（在沉浸歌词视图下激活） -->
+  <div class="ambient-mesh" id="ambientMesh">
+    <div class="ambient-blob blob-1"></div>
+    <div class="ambient-blob blob-2"></div>
+    <div class="ambient-blob blob-3"></div>
+    <div class="ambient-blob blob-4"></div>
+  </div>
+
+  <!-- ----------------- 统一顶部栏 ----------------- -->
+  <div class="top-bar liquid-glass" id="topBar">
+    <div class="nav-left">
+      <button class="sidebar-toggle-btn" id="sidebarToggleBtn" onclick="toggleSidebar()" title="收起/展开侧边栏">
+        <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <rect x="3" y="3" width="18" height="18" rx="3"/>
+          <path d="M9 3v18"/>
+        </svg>
+      </button>
+
+      <div class="brand-logo">
+        <svg width="19" height="19" viewBox="0 0 24 24" fill="currentColor" style="color: var(--accent);">
+          <path d="M12 3v10.55c-.59-.34-1.27-.55-2-.55-2.21 0-4 1.79-4 4s1.79 4 4 4 4-1.79 4-4V7h4V3h-6z"/>
+        </svg>
+        <span class="app-title" id="i18n-appTitle">SonicTag Studio</span>
+      </div>
+
+      <div class="view-segmented-control">
+        <button class="view-btn active" id="btnViewEditor" onclick="switchMainView('editor')">🏷️ 标签编辑</button>
+        <button class="view-btn" id="btnViewLyrics" onclick="switchMainView('lyrics')">🎤 沉浸歌词</button>
+        <button class="view-btn" id="btnViewVinyl" onclick="switchMainView('vinyl')">💿 唱片画幅</button>
+      </div>
+    </div>
+
+    <!-- 播放控制区（在沉浸歌词视图下会移动到封面下方） -->
+    <div class="player-area" id="playerArea">
+      <div class="player-track-info">
+        <img class="dock-thumb" id="dockCover" src="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg'/>">
+        <div class="dock-details">
+          <div class="dock-title" id="dockTitle">未播放曲目</div>
+          <div class="dock-artist" id="dockArtist">选择曲目开始试听</div>
+        </div>
+      </div>
+
+      <div class="player-controls-cluster">
+        <button class="dock-ctrl-btn" id="modeBtn" onclick="cyclePlayMode()" title="列表循环">
+          <svg id="iconLoopList" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <polyline points="17 1 21 5 17 9"></polyline>
+            <path d="M3 11V9a4 4 0 0 1 4-4h14"></path>
+            <polyline points="7 23 3 19 7 15"></polyline>
+            <path d="M21 13v2a4 4 0 0 1-4 4H3"></path>
+          </svg>
+          <svg id="iconLoopSingle" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:none;">
+            <polyline points="17 1 21 5 17 9"></polyline>
+            <path d="M3 11V9a4 4 0 0 1 4-4h14"></path>
+            <polyline points="7 23 3 19 7 15"></polyline>
+            <path d="M21 13v2a4 4 0 0 1-4 4H3"></path>
+            <text x="10" y="15" font-size="8" font-weight="bold" fill="currentColor" stroke="none">1</text>
+          </svg>
+          <svg id="iconShuffle" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:none;">
+            <polyline points="16 3 21 3 21 8"></polyline>
+            <line x1="4" y1="20" x2="21" y2="3"></line>
+            <polyline points="21 16 21 21 16 21"></polyline>
+            <line x1="15" y1="15" x2="21" y2="21"></line>
+            <line x1="4" y1="4" x2="9" y2="9"></line>
+          </svg>
+        </button>
+
+        <button class="dock-ctrl-btn" onclick="playPrev()" title="上一首">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="M6 6h2v12H6zm3.5 6l8.5 6V6z"/></svg>
+        </button>
+
+        <button class="play-btn" id="playBtn" onclick="togglePlay()" title="播放/暂停">
+          <svg id="playIcon" width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>
+          <svg id="pauseIcon" width="14" height="14" viewBox="0 0 24 24" fill="currentColor" style="display:none;"><path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z"/></svg>
+        </button>
+
+        <button class="dock-ctrl-btn" onclick="playNext(false)" title="下一首">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="M6 18l8.5-6L6 6v12zM16 6v12h2V6h-2z"/></svg>
+        </button>
+
+        <button class="rate-btn" id="rateBtn" onclick="cyclePlaybackRate()" title="播放倍速">1.0x</button>
+      </div>
+
+      <!-- 真实波形进度条轨道 -->
+      <div class="timeline-bar">
+        <span id="timeCurrent">0:00</span>
+        <div class="waveform-wrapper" id="waveformBox">
+          <canvas id="waveformCanvas"></canvas>
+          <div class="waveform-cursor" id="waveCursor"></div>
+          <div class="waveform-tooltip" id="waveTooltip">0:00</div>
+        </div>
+        <span id="timeDuration">0:00</span>
+      </div>
+    </div>
+
+    <div class="nav-right">
+      <div class="volume-group">
+        <button class="dock-ctrl-btn" id="muteBtn" onclick="toggleMute()" title="静音 / 恢复">
+          <svg id="iconVolHigh" width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"></polygon>
+            <path d="M15.54 8.46a5 5 0 0 1 0 7.07"></path>
+            <path d="M19.07 4.93a10 10 0 0 1 0 14.14"></path>
+          </svg>
+          <svg id="iconVolLow" width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:none;">
+            <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"></polygon>
+            <path d="M15.54 8.46a5 5 0 0 1 0 7.07"></path>
+          </svg>
+          <svg id="iconVolMute" width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:none; color: var(--accent);">
+            <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"></polygon>
+            <line x1="23" y1="9" x2="17" y2="15"></line>
+            <line x1="17" y1="9" x2="23" y2="15"></line>
+          </svg>
+        </button>
+        <input type="range" class="vol-scrubber" id="volumeScrubber" min="0" max="1" step="0.01" value="0.85">
+      </div>
+
+      <button class="dock-ctrl-btn" id="btnUpNext" onclick="toggleUpNextDrawer()" title="待播清单与插播队列">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <line x1="8" y1="6" x2="21" y2="6"></line>
+          <line x1="8" y1="12" x2="21" y2="12"></line>
+          <line x1="8" y1="18" x2="21" y2="18"></line>
+          <line x1="3" y1="6" x2="3.01" y2="6"></line>
+          <line x1="3" y1="12" x2="3.01" y2="12"></line>
+          <line x1="3" y1="18" x2="3.01" y2="18"></line>
+        </svg>
+        <span class="priority-badge-dot" id="priorityBadgeDot"></span>
+      </button>
+
+      <button class="dock-ctrl-btn" id="pipBtn" onclick="togglePictureInPicture()" title="开启画中画桌面动态歌词">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <rect x="2" y="4" width="20" height="16" rx="2"></rect>
+          <rect x="12" y="10" width="8" height="8" rx="1" fill="currentColor" opacity="0.3"></rect>
+        </svg>
+      </button>
+
+      <button class="dock-ctrl-btn enter-immersive-btn" id="enterImmersiveBtn" onclick="enterManualImmersive()" title="进入沉浸模式">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M8 3H5a2 2 0 0 0-2 2v3"></path>
+          <path d="M16 3h3a2 2 0 0 1 2 2v3"></path>
+          <path d="M8 21H5a2 2 0 0 1-2-2v-3"></path>
+          <path d="M16 21h3a2 2 0 0 0 2-2v-3"></path>
+        </svg>
+      </button>
+    </div>
+  </div>
+
+  <!-- 退出沉浸模式按钮（仅在手动沉浸时显示） -->
+  <button class="exit-immersive-btn liquid-glass" id="exitImmersiveBtn" onclick="exitManualImmersive()" title="退出沉浸模式 (ESC)">
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M8 3H5a2 2 0 0 0-2 2v3"></path>
+      <path d="M16 3h3a2 2 0 0 1 2 2v3"></path>
+      <path d="M8 21H5a2 2 0 0 1-2-2v-3"></path>
+      <path d="M16 21h3a2 2 0 0 0 2-2v-3"></path>
+      <line x1="9" y1="12" x2="15" y2="12"></line>
+    </svg>
+    退出沉浸
+  </button>
+
+  <div class="pref-strip liquid-glass">
+    <div class="pref-group">
+      <label class="pref-item">
+        <input type="checkbox" id="chkExportLrc" checked>
+        <span id="i18n-lrcSync">导出独立 .lrc</span>
+      </label>
+      <label class="pref-item">
+        <input type="checkbox" id="chkCarMode">
+        <span id="i18n-carMode">🚗 车载兼容 (压缩封面)</span>
+      </label>
+      <label class="pref-item">
+        <input type="checkbox" id="chkSaveLocal" checked onchange="toggleSaveMode()">
+        <span id="i18n-directSave">直接保存到本地</span>
+      </label>
+    </div>
+
+    <div class="pref-group" id="localGroup">
+      <span style="max-width: 240px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;" id="displayFolder">未设定目录</span>
+      <button class="theme-toggle" onclick="chooseFolder()" id="i18n-chooseBtn">浏览...</button>
+      <label class="pref-item">
+        <input type="checkbox" id="chkAlwaysAsk">
+        <span id="i18n-ask">每次询问</span>
+      </label>
+    </div>
+
+    <div class="pref-group pref-actions">
+      <select class="organizer-select" id="organizePattern" title="归档规则">
+        <option value="{artist}/{album}/{track} - {title}">📁 {歌手}/{专辑}/{音轨} - {歌名}</option>
+        <option value="{artist} - {title}">📄 {歌手} - {歌名}</option>
+        <option value="original">保持原始文件名</option>
+      </select>
+
+      <button class="theme-toggle" onclick="toggleTheme()" id="themeBtn">🌓 自动</button>
+      <select class="lang-select" id="uiLang" onchange="changeLanguage(this.value)">
+        <option value="zh">中文</option>
+        <option value="en">English</option>
+        <option value="ja">日本語</option>
+      </select>
+      <button class="btn-apple" id="saveBtn" onclick="submitBatch()" disabled>一键导出</button>
+    </div>
+  </div>
+
+  <div class="workbench" id="workbench">
+    <div class="sidebar liquid-glass">
+      <div class="sidebar-head">
+        <span id="i18n-queueHeader">待处理队列</span>
+        <span id="queueCount">0</span>
+      </div>
+
+      <div class="file-tree" id="fileList">
+        <div style="padding: 40px 16px; text-align: center; color: var(--text-sub); font-size: 12px;" id="i18n-emptyTip">
+          拖入音频文件开始处理
+        </div>
+      </div>
+
+      <div class="drop-dock" onclick="document.getElementById('fileInput').click()" id="i18n-dockTip">
+        + 点击或拖拽音频文件到此处
+      </div>
+      <input type="file" id="fileInput" accept=".flac,.mp3" multiple style="display: none">
+    </div>
+
+    <div class="canvas-viewport" id="canvasViewport" style="opacity: 0.3; pointer-events: none;">
+
+      <!-- 视界 1: 标签编辑 -->
+      <div id="viewEditor">
+        <div style="display: flex; gap: 8px;">
+          <input type="text" class="apple-input" style="flex:1;" id="manualQuery" placeholder="输入歌名/歌手手动纠正搜索...">
+          <button class="theme-toggle" onclick="manualReSearch()" id="i18n-searchBtn">搜索</button>
+        </div>
+
+        <div class="candidates-bar" id="candidatesList"></div>
+
+        <div class="form-row">
+          <div class="cover-view" id="detailCover" onclick="triggerPickCover()">
+            <span>拖入图片</span>
+            <div class="cover-overlay">点击/拖入图片更换封面</div>
+          </div>
+          <div class="meta-fields">
+            <div class="field-item col-2">
+              <label id="i18n-lblTitle">标题 (TITLE)</label>
+              <input type="text" class="apple-input" id="fieldTitle" oninput="updateCurrentMeta()">
+            </div>
+            <div class="field-item col-2">
+              <label id="i18n-lblArtist">艺术家 (ARTIST)</label>
+              <input type="text" class="apple-input" id="fieldArtist" oninput="updateCurrentMeta()">
+            </div>
+
+            <div class="field-item col-2">
+              <label id="i18n-lblAlbum">专辑 (ALBUM)</label>
+              <input type="text" class="apple-input" id="fieldAlbum" oninput="updateCurrentMeta()">
+            </div>
+            <div class="field-item col-2">
+              <label id="i18n-lblAlbumArtist">专辑艺术家 (ALBUM ARTIST)</label>
+              <input type="text" class="apple-input" id="fieldAlbumArtist" oninput="updateCurrentMeta()">
+            </div>
+
+            <div class="field-item col-1">
+              <label id="i18n-lblGenre">流派 (GENRE)</label>
+              <input type="text" class="apple-input" id="fieldGenre" oninput="updateCurrentMeta()">
+            </div>
+            <div class="field-item col-1">
+              <label id="i18n-lblYear">年份 (YEAR)</label>
+              <input type="text" class="apple-input" id="fieldYear" oninput="updateCurrentMeta()">
+            </div>
+            <div class="field-item col-1">
+              <label id="i18n-lblTrack">音轨 (TRACK)</label>
+              <input type="text" class="apple-input" id="fieldTrack" placeholder="01/12" oninput="updateCurrentMeta()">
+            </div>
+            <div class="field-item col-1">
+              <label id="i18n-lblDisc">碟号 (DISC)</label>
+              <input type="text" class="apple-input" id="fieldDisc" placeholder="1/1" oninput="updateCurrentMeta()">
+            </div>
+          </div>
+        </div>
+
+        <div class="lyrics-dock">
+          <div class="lyrics-header">
+            <div style="display:flex; align-items:center; gap:10px;">
+              <span class="lyrics-title" id="i18n-lyricsTitle">LRC 同步歌词</span>
+              <div class="segmented-control" id="bilingualGroup" style="display: none;">
+                <button class="seg-btn active" id="btnBi" onclick="switchBilingualMode('bilingual')">双语</button>
+                <button class="seg-btn" id="btnOrig" onclick="switchBilingualMode('orig')">原文</button>
+                <button class="seg-btn" id="btnTrans" onclick="switchBilingualMode('trans')">译文</button>
+              </div>
+            </div>
+
+            <div class="segmented-control">
+              <button class="seg-btn active" id="btnModeFlow" onclick="switchLyricView('flow')">✨ 动效预览</button>
+              <button class="seg-btn" id="btnModeText" onclick="switchLyricView('text')">📝 源码编辑</button>
+            </div>
+          </div>
+
+          <div class="lyrics-flow-container" id="lyricsFlowContainer">
+            <div style="margin: auto; color: var(--text-sub); font-size: 13px;">等待载入歌词...</div>
+          </div>
+
+          <textarea class="apple-input" id="fieldLyrics" oninput="onLyricsEdited()"></textarea>
+        </div>
+      </div>
+
+      <!-- 视界 2: 沉浸大字歌词（内嵌流光背景） -->
+      <div id="viewLyrics">
+        <div class="immersive-left">
+          <img class="immersive-big-cover" id="immCover" src="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg'/>">
+          <div>
+            <div class="immersive-track-title" id="immTitle">未播放曲目</div>
+            <div class="immersive-track-artist" id="immArtist">选择歌曲开启沉浸</div>
+          </div>
+          <div class="immersive-player-host" id="immersivePlayerHost"></div>
+        </div>
+
+        <div class="immersive-lyrics-scroll" id="immLyricsScroll">
+          <div style="color: var(--text-sub); font-size: 18px; margin: auto;">等待音频播放...</div>
+        </div>
+      </div>
+
+      <!-- 视界 3: 黑胶唱片画幅 -->
+      <div id="viewVinyl">
+        <div class="vinyl-stage">
+          <div class="vinyl-jacket">
+            <img id="vinylJacketImg" src="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg'/>">
+          </div>
+          <div class="vinyl-disc" id="vinylDisc">
+            <div class="vinyl-center-label">
+              <img id="vinylLabelImg" src="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg'/>">
+            </div>
+          </div>
+        </div>
+
+        <canvas id="visualizerCanvas" width="480" height="50"></canvas>
+
+        <div class="vinyl-spec-board">
+          <div class="spec-item">
+            <span class="spec-val" id="specFormat">FLAC</span>
+            <span class="spec-tag">FORMAT</span>
+          </div>
+          <div style="width:1px; height:24px; background:var(--border);"></div>
+          <div class="spec-item">
+            <span class="spec-val" id="specSample">96.0 kHz</span>
+            <span class="spec-tag">SAMPLE RATE</span>
+          </div>
+          <div style="width:1px; height:24px; background:var(--border);"></div>
+          <div class="spec-item">
+            <span class="spec-val" id="specBits">24-Bit</span>
+            <span class="spec-tag">BIT DEPTH</span>
+          </div>
+          <div style="width:1px; height:24px; background:var(--border);"></div>
+          <div class="spec-item">
+            <span class="spec-val" id="specBitrate">2800 kbps</span>
+            <span class="spec-tag">BITRATE</span>
+          </div>
+        </div>
+      </div>
+
+    </div>
+  </div>
+
+  <!-- ----------------- 待播清单抽屉弹窗 (Up Next Drawer) ----------------- -->
+  <div class="upnext-drawer liquid-glass" id="upNextDrawer">
+    <div class="upnext-head">
+      <span>播放清单 (Up Next)</span>
+      <button class="upnext-del" onclick="clearPriorityQueue()" title="清空插播" style="font-size:11px;">清空插播</button>
+    </div>
+
+    <div class="upnext-section-title">正在播放</div>
+    <div class="upnext-item" id="upNextCurrentItem">
+      <img class="upnext-thumb" id="upNextCurThumb" src="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg'/>">
+      <div class="upnext-title" id="upNextCurTitle">未选择曲目</div>
+    </div>
+
+    <div class="upnext-section-title">优先插播队列 (<span id="priorityCount">0</span>)</div>
+    <div class="upnext-list" id="priorityListContainer">
+      <div style="font-size:10px; color:var(--text-sub); padding:4px 0;">暂无插播，可在曲目悬浮点击“设为下一首”</div>
+    </div>
+  </div>
+
+</div>
+
+<script src="/static/app.js"></script>
+</body>
+</html>
